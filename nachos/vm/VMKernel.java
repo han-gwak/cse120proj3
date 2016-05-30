@@ -46,6 +46,26 @@ public class VMKernel extends UserKernel {
 
 	// dummy variables to make javac smarter
 	private static VMProcess dummy1 = null;
-
+        protected static PhysicalPage[] invTable; //inverted page table
 	private static final char dbgVM = 'v';
+       
+        // data structure for a physical page
+        private class PhysicalPage
+	{
+		
+		public TranslationEntry ent;
+                public VMProcess proc;		
+                boolean accessed;
+                //might need more data (variables)
+
+		public PhysicalPage()
+		{
+			this.ent = new TranslationEntry();
+			this.proc = null;
+			this.accessed = true;
+		}
+	}
+
+
+
 }
