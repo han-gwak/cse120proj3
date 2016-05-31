@@ -1,5 +1,7 @@
 package nachos.vm;
 
+
+import java.util.Random;
 import nachos.machine.*;
 import nachos.threads.*;
 import nachos.userprog.*;
@@ -79,6 +81,13 @@ public class VMProcess extends UserProcess {
 			}
 		}
 
+                // if entry was not found above
+                if(unusedTLBEntry == 0){
+                   int size = Machine.processor().getTLBSize();
+                   unusedTLBEntry = rand.nextInt(size);
+                }
+
+
 		// evict tlb entry with Lib.random()
 		if(evict) {
 			// TODO: sync victim's page table entry
@@ -111,7 +120,9 @@ public class VMProcess extends UserProcess {
 				break;
 			}
 	}
+       
 
+        private static final Random rand = new Random();
 	private static final int pageSize = Processor.pageSize;
 
 	private static final char dbgProcess = 'a';
