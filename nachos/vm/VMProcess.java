@@ -62,6 +62,36 @@ public class VMProcess extends UserProcess {
        }
      */
 
+	private void handleTLBMiss() {
+		boolean evict = true;
+		int unusedTLBEntry = 0;
+
+		// TODO: invalid page table entry -> page fault
+//		if(!pte.valid) {
+//		}
+		
+		// allocate invalid/unused tlb entry
+		for(int i = 0; i < Machine.processor().getTLBSize(); i++) {
+			if(!Machine.processor().readTLBEntry(i).valid) {
+				evict = false;
+				unusedTLBEntry = i;
+				break;
+			}
+		}
+
+		// evict tlb entry with Lib.random()
+		if(evict) {
+			// TODO: sync victim's page table entry
+			
+		}
+
+		// update tlb entry with page table entry
+		int vaddr = Machine.processor().readRegister(Processor.regBadVAddr);
+		int vpn = Processor.pageFromAddress(vaddr); // TODO: add range check
+		TranslationEntry pte = pageTable[vpn];
+		Machine.processor().writeTLBEntry(unusedTLBEntry, pte);
+	}
+
 	/**
 	 * Handle a user exception. Called by <tt>UserKernel.exceptionHandler()</tt>
 	 * . The <i>cause</i> argument identifies which exception occurred; see the
@@ -73,10 +103,13 @@ public class VMProcess extends UserProcess {
 		Processor processor = Machine.processor();
 
 		switch (cause) {
-		default:
-			super.handleException(cause);
-			break;
-		}
+			case Processor.exceptionTLBMiss:
+				handleTLBMiss();
+				break;
+			default:
+				super.handleException(cause);
+				break;
+			}
 	}
 
 	private static final int pageSize = Processor.pageSize;
