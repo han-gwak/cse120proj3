@@ -38,7 +38,15 @@ public class VMProcess extends UserProcess {
 	 * @return <tt>true</tt> if successful.
 	 */
 	protected boolean loadSections() {
-		return super.loadSections();
+	     
+            pageTable = new TranslationEntry[numPages];
+            int count = 0;             
+            //initializing pageTable
+            while(count < numPages){
+			pageTable[count] = new TranslationEntry(count, -1, false, false, false,
+					false);
+            }
+            return true;
 	}
 
 	/**
@@ -47,6 +55,12 @@ public class VMProcess extends UserProcess {
 	protected void unloadSections() {
 		super.unloadSections();
 	}
+      /*
+        public int  handleExit(int exit) {
+       
+          return  super.handleExit(exit);
+       }
+     */
 
 	/**
 	 * Handle a user exception. Called by <tt>UserKernel.exceptionHandler()</tt>
