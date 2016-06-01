@@ -40,15 +40,17 @@ public class VMProcess extends UserProcess {
 	 * @return <tt>true</tt> if successful.
 	 */
 	protected boolean loadSections() {
-	     
-            pageTable = new TranslationEntry[numPages];
-            int count = 0;             
+		return super.loadSections();	     
+/*            pageTable = new TranslationEntry[numPages];
+            int count = 0;
             //initializing pageTable
             while(count < numPages){
-			pageTable[count] = new TranslationEntry(count, -1, false, false, false,
-					false);
+				pageTable[count] = new TranslationEntry(count, -1, false, 
+					false, false, false);
+				count++;
             }
             return true;
+*/
 	}
 
 	/**
@@ -57,21 +59,15 @@ public class VMProcess extends UserProcess {
 	protected void unloadSections() {
 		super.unloadSections();
 	}
-      /*
-        public int  handleExit(int exit) {
-       
-          return  super.handleExit(exit);
-       }
-     */
 
 	private void handleTLBMiss() {
 		boolean evict = true;
-		int unusedTLBEntry = 0;
+		int unusedTLBEntry = -1;
 
 		// TODO: invalid page table entry -> page fault
 //		if(!pte.valid) {
 //		}
-		
+
 		// allocate invalid/unused tlb entry
 		for(int i = 0; i < Machine.processor().getTLBSize(); i++) {
 			if(!Machine.processor().readTLBEntry(i).valid) {
@@ -81,18 +77,13 @@ public class VMProcess extends UserProcess {
 			}
 		}
 
-                // if entry was not found above
-                if(unusedTLBEntry == 0){
-                   int size = Machine.processor().getTLBSize();
-                   unusedTLBEntry = rand.nextInt(size);
-                }
-
-
-		// evict tlb entry with Lib.random()
-		if(evict) {
-			// TODO: sync victim's page table entry
-			
-		}
+        // evict TLB entry with Lib.random()
+        if(evict) {
+        	unusedTLBEntry = Lib.random(Machine.processor().getTLBSize());
+        	System.out.println("Random page evicted; page " + unusedTLBEntry);
+        	
+        	// TODO: sync victim's page table entry and swap out dirty pages
+        }
 
 		// update tlb entry with page table entry
 		int vaddr = Machine.processor().readRegister(Processor.regBadVAddr);
@@ -118,11 +109,9 @@ public class VMProcess extends UserProcess {
 			default:
 				super.handleException(cause);
 				break;
-			}
+		}
 	}
-       
 
-        private static final Random rand = new Random();
 	private static final int pageSize = Processor.pageSize;
 
 	private static final char dbgProcess = 'a';
