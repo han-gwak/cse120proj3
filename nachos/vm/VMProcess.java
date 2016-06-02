@@ -23,7 +23,12 @@ public class VMProcess extends UserProcess {
 	 * Called by <tt>UThread.saveState()</tt>.
 	 */
 	public void saveState() {
-		super.saveState();
+		// maybe only save dirty bit entries
+		// flush TLB entries before switching by invalidating all TLB entries
+		// write TLB entries back to the page table if necessary
+		// sync TLB entry bits back to page table before flushing valid TLB entry
+		// sync before evicting valid TLB entry
+		// sync before evicting a physical page
 	}
 
 	/**
@@ -83,12 +88,16 @@ public class VMProcess extends UserProcess {
         	System.out.println("Random page evicted; page " + unusedTLBEntry);
         	
         	// TODO: sync victim's page table entry and swap out dirty pages
+        	saveState();
         }
+
+        // TODO: set valid bit to 1?
 
 		// update tlb entry with page table entry
 		int vaddr = Machine.processor().readRegister(Processor.regBadVAddr);
 		int vpn = Processor.pageFromAddress(vaddr); // TODO: add range check
 		TranslationEntry pte = pageTable[vpn];
+		pte.valid = true;
 		Machine.processor().writeTLBEntry(unusedTLBEntry, pte);
 	}
 
