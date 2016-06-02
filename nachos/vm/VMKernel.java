@@ -9,61 +9,59 @@ import nachos.vm.*;
  * A kernel that can support multiple demand-paging user processes.
  */
 public class VMKernel extends UserKernel {
-	/**
-	 * Allocate a new VM kernel.
-	 */
-	public VMKernel() {
-		super();
-	}
+  /**
+   * Allocate a new VM kernel.
+   */
+  public VMKernel() {
+    super();
+  }
 
-	/**
-	 * Initialize this kernel.
-	 */
-	public void initialize(String[] args) {
-		super.initialize(args);
-	}
+  /**
+   * Initialize this kernel.
+   */
+  public void initialize(String[] args) {
+    super.initialize(args);
+  }
 
-	/**
-	 * Test this kernel.
-	 */
-	public void selfTest() {
-		super.selfTest();
-	}
+  /**
+   * Test this kernel.
+   */
+  public void selfTest() {
+    super.selfTest();
+  }
 
-	/**
-	 * Start running user programs.
-	 */
-	public void run() {
-		super.run();
-	}
+  /**
+   * Start running user programs.
+   */
+  public void run() {
+    super.run();
+  }
 
-	/**
-	 * Terminate this kernel. Never returns.
-	 */
-	public void terminate() {
-		super.terminate();
-	}
+  /**
+   * Terminate this kernel. Never returns.
+   */
+  public void terminate() {
+    super.terminate();
+  }
 
-	// dummy variables to make javac smarter
-	private static VMProcess dummy1 = null;
-    protected static PhysicalPage[] invTable; //inverted page table
-	private static final char dbgVM = 'v';
-       
-    // data structure for a physical page
-    private class PhysicalPage
-	{	
-		public TranslationEntry ent;
-        public VMProcess proc;
-        boolean accessed;
-        //might need more data (variables)
+  // dummy variables to make javac smarter
+  private static VMProcess dummy1 = null;
+  protected static PhysicalPage[] invTable; //inverted page table
+  private static final char dbgVM = 'v';
 
-		public PhysicalPage()
-		{
-			this.ent = new TranslationEntry();
-			this.proc = null;
-			this.accessed = true;
-		}
-	}
+  // data structure for a physical page
+  private class PhysicalPage
+  {	
+    public TranslationEntry ent;
+    public VMProcess proc;
+    boolean accessed;
+    //might need more data (variables)
 
-	// add linked list of free pages?
+    public PhysicalPage()
+    {
+      this.ent = new TranslationEntry();
+      this.proc = null;
+      this.accessed = true;
+    }
+  }
 }
