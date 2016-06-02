@@ -23,12 +23,23 @@ public class VMProcess extends UserProcess {
 	 * Called by <tt>UThread.saveState()</tt>.
 	 */
 	public void saveState() {
-		// maybe only save dirty bit entries
-		// flush TLB entries before switching by invalidating all TLB entries
-		// write TLB entries back to the page table if necessary
-		// sync TLB entry bits back to page table before flushing valid TLB entry
-		// sync before evicting valid TLB entry
-		// sync before evicting a physical page
+		// invalidate all TLB entries & update page table
+		for(int i = 0; i < Machine.processor().getTLBSize(); i++) {
+			TranslationEntry tlbe = new TranslationEntry(Machine.
+				processor().readTLBEntry(i));
+
+			// sync valid TLB entries back to pageTable
+			if(tlbe.valid) {
+				tlbe.valid = false;
+				pageTable[tlbe.vpn] = tlbe;
+				Machine.processor().writeTLBEntry(i, tlbe);
+			}
+
+			// physical page evicted; update in page table
+			else if(tlbe.ppn != pageTable[tlbe.vpn].ppn) {
+				pageTable[tlbe.vpn].ppn = tlbe.ppn;
+			}
+		}
 	}
 
 	/**
@@ -45,17 +56,16 @@ public class VMProcess extends UserProcess {
 	 * @return <tt>true</tt> if successful.
 	 */
 	protected boolean loadSections() {
-		return super.loadSections();	     
-/*            pageTable = new TranslationEntry[numPages];
-            int count = 0;
-            //initializing pageTable
-            while(count < numPages){
-				pageTable[count] = new TranslationEntry(count, -1, false, 
-					false, false, false);
-				count++;
-            }
-            return true;
-*/
+		// initialize pageTable with invalid readOnly entries with ppn -1
+		pageTable = new TranslationEntry[numPages];
+		int count = 0;
+		while(count < numPages) {
+			pageTable[count] = new TranslationEntry(count, -1,
+				false, true, false, false)
+			count++;
+		}
+
+		return true;
 	}
 
 	/**
@@ -66,39 +76,39 @@ public class VMProcess extends UserProcess {
 	}
 
 	private void handleTLBMiss() {
-		boolean evict = true;
-		int unusedTLBEntry = -1;
+		boolean tlbFull = true;
+		int teIndex = 0;
 
-		// TODO: invalid page table entry -> page fault
-//		if(!pte.valid) {
-//		}
+		// get page table entry from virtual address
+		int vaddr = Machine.processor().readRegister(Processor.regBadVAddr);
+		int vpn = Processor.pageFromAddress(vaddr);
+		Lib.assertTrue(vpn >= 0 && vpn < numPages)
+
+		TranslationEntry pte = pageTable[vpn]; // reference to pageTable[vpn]
+		TranslationEntry tlbe = new TranslationEntry(pte);
+
+		// allocate physical page if unallocated or invalid
+		if(pte.ppn == -1 || !pte.valid) {
+		}
 
 		// allocate invalid/unused tlb entry
 		for(int i = 0; i < Machine.processor().getTLBSize(); i++) {
 			if(!Machine.processor().readTLBEntry(i).valid) {
-				evict = false;
-				unusedTLBEntry = i;
+				tlbFull = false;
+				teIndex = i;
 				break;
 			}
 		}
 
-        // evict TLB entry with Lib.random()
-        if(evict) {
-        	unusedTLBEntry = Lib.random(Machine.processor().getTLBSize());
-        	System.out.println("Random page evicted; page " + unusedTLBEntry);
-        	
-        	// TODO: sync victim's page table entry and swap out dirty pages
-        	saveState();
+		// evict TLB entry with Lib.random()
+        if(tlbFull) {
+        	teIndex = Lib.random(Machine.processor().getTLBSize());
+	        saveState();
         }
 
-        // TODO: set valid bit to 1?
-
-		// update tlb entry with page table entry
-		int vaddr = Machine.processor().readRegister(Processor.regBadVAddr);
-		int vpn = Processor.pageFromAddress(vaddr); // TODO: add range check
-		TranslationEntry pte = pageTable[vpn];
-		pte.valid = true;
-		Machine.processor().writeTLBEntry(unusedTLBEntry, pte);
+		// update TLB entry
+		tlbe.valid = true;
+		Machine.processor().writeTLBEntry(teIndex, tlbe);
 	}
 
 	/**
