@@ -21,6 +21,8 @@ public class VMKernel extends UserKernel {
    */
   public void initialize(String[] args) {
     super.initialize(args);
+    invTable = new PhysicalPage[Machine.
+      processor().getNumPhysPages()];
   }
 
   /**
@@ -46,22 +48,20 @@ public class VMKernel extends UserKernel {
 
   // dummy variables to make javac smarter
   private static VMProcess dummy1 = null;
-  protected static PhysicalPage[] invTable; //inverted page table
   private static final char dbgVM = 'v';
 
+  // inverted page table; indexes are ppn
+  public static PhysicalPage[] invTable;
+
   // data structure for a physical page
-  private class PhysicalPage
+  public class PhysicalPage
   {	
-    public TranslationEntry ent;
-    public VMProcess proc;
-    boolean accessed;
-    //might need more data (variables)
+    public int vpn = -1;
+    public VMProcess proc = null;
+    public boolean pinned = false;
 
     public PhysicalPage()
     {
-      this.ent = new TranslationEntry();
-      this.proc = null;
-      this.accessed = true;
     }
   }
 }

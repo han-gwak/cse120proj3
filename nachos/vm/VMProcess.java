@@ -23,17 +23,26 @@ public class VMProcess extends UserProcess {
    * Called by <tt>UThread.saveState()</tt>.
    */
   public void saveState() {
-    // invalidate all TLB entries & update page table
+    syncEntries(true); // sync TLB bits and invalidate entries
+  }
+
+  /**
+   * Syncs bits of all valid TLB entries to page table.
+   * Invalidates all TLB entries if invalidate = true
+   */
+  public void syncEntries(boolean invalidate) {
+    // update page table
     for(int i = 0; i < Machine.processor().getTLBSize(); i++) {
       TranslationEntry tlbe = Machine.processor().readTLBEntry(i);
       TranslationEntry pte = pageTable[tlbe.vpn];
 
-      // invalidate and sync all valid TLB entries 
+      // sync all valid TLB entries 
       if(tlbe.valid) {
-        tlbe.valid = false;  // TODO: find out if all valid should be set 
-                             // to false in this method
         pte.used = tlbe.used;
         pte.dirty = tlbe.dirty;
+
+        if(invalidate)
+          tlbe.valid = false;
       }
     }
   }
@@ -57,7 +66,7 @@ public class VMProcess extends UserProcess {
     int count = 0;
     while(count < numPages) {
       pageTable[count] = new TranslationEntry(count, -1,
-          false, true, false, false)
+          false, true, false, false);
         count++;
     }
 
@@ -71,23 +80,10 @@ public class VMProcess extends UserProcess {
     super.unloadSections();
   }
 
-  private void pageFaultHandler() {
-    // allocate physical page if free page available
-    if(!freePages.empty()) {
-      int ppn = ((Integer)UserKernel.freePages.removeFirst()).intValue();
-      pte.ppn = ppn;
-      pte.valid = true;
-    }
-
-    // physical memory full; evict page to swap
-    else {
-      saveState(); // sync TLB entries TODO: update validity bits
-      int victim = clockReplacement();
-      // if(victim.dirty) -> swap out
-      // invalidate pte and tlb entry of victim page (in IPT?)
-    }
-  }
-
+  /**
+   * Chooses page to evict when no free pages.
+   * FIFO but skips pages where used == true.
+   */
   private int clockReplacement() {
     byte[] memory = Machine.processor().getMemory();
     int frames = Machine.processor().getNumPhysPages();
@@ -95,18 +91,59 @@ public class VMProcess extends UserProcess {
     return 0;
   }
 
-  private void handleTLBMiss() {
-    boolean tlbFull = true;
-    int teIndex = 0;
+  /**
+   * Loops through TLB/page table to see if any entries 
+   * have mapping to specified ppn; invalidates them if so.
+   */
+  private void invalidateVictimPage(int ppn) {
+    for(int i = 0; i < Machine.processor().getTLBSize(); i++) {
+      TranslationEntry tlbe = Machine.processor().readTLBEntry(i);
+      if(tlbe.ppn = ppn) {
+        tlbe.valid = false;
+        pageTable[tlbe.vpn].valid = false;
+      }
+    }
+  }
 
+  private void handleTLBMiss() {
     // get/allocate page table entry from virtual address
     int vaddr = Machine.processor().readRegister(Processor.regBadVAddr);
     int vpn = Processor.pageFromAddress(vaddr);
-    Lib.assertTrue(vpn >= 0 && vpn < numPages)
+    Lib.assertTrue(vpn >= 0 && vpn < numPages);
     TranslationEntry pte = pageTable[vpn];
+
+    // page fault
     if(!pte.valid) {
-      pageFaultHandler();
+      int ppn;
+    
+      // allocate PTE and inverted PTE if free page available
+      if(UserKernel.freePages.size() > 0) {
+        ppn = ((Integer)UserKernel.freePages.removeFirst()).intValue();
+      }
+
+      else {
+        // sync entries then swap out victim, invalidating its entries
+        syncEntries(false);
+        ppn = clockReplacement();
+        if(pageTable[invTable[ppn].vpn].dirty) {
+          // swap here
+        }
+        invalidateVictimPage(ppn);
+      }
+
+      // update PTE; check read-only section
+      pte.ppn = ppn;
+      pte.valid = true;
+      // pte.readonly = 
+
+      // update invTable; check if pinned section
+      invTable[ppn].vpn = vpn;
+      invTable[ppn].proc = this;
+      // invTable[ppn].pinned = 
     }
+
+    boolean tlbFull = true;
+    int teIndex = 0;
 
     // allocate invalid/unused tlb entry
     for(int i = 0; i < Machine.processor().getTLBSize(); i++) {
@@ -117,16 +154,22 @@ public class VMProcess extends UserProcess {
       }
     }
 
-    // evict TLB entry with Lib.random()
+    // evict and sync TLB entry but don't invalidate all
     if(tlbFull) {
       teIndex = Lib.random(Machine.processor().getTLBSize());
-      saveState();
+      syncEntries(false);
     }
 
     // update TLB entry
     TranslationEntry tlbe = new TranslationEntry(pte);
     tlbe.valid = true;
     Machine.processor().writeTLBEntry(teIndex, tlbe);
+
+    // initialize inverted page table entry for page
+    PhysicalPage physPage = VMKernel.invTable[tlbe.ppn];
+    physPage.te = new TranslationEntry(tlbe);
+    physPage.proc = this;
+    //physPage.pinned
   }
 
   /**
