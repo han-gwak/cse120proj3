@@ -24,7 +24,7 @@ public class VMKernel extends UserKernel {
     
     invTable = new PhysicalPage[Machine.
       processor().getNumPhysPages()];
-    swapFile = ThreadedKernel.fileSystem.open("swap.nachos");
+    swapFile = ThreadedKernel.fileSystem.open("swap.nachos", true);
   }
 
   /**
@@ -48,7 +48,7 @@ public class VMKernel extends UserKernel {
     super.terminate();
 
     swapFile.close();
-    ThreadedKernel.fileSystem.remove();
+    ThreadedKernel.fileSystem.remove("swap.nachos");
   }
 
   // dummy variables to make javac smarter
@@ -57,8 +57,7 @@ public class VMKernel extends UserKernel {
 
   // inverted page table; indexes are ppn
   public static PhysicalPage[] invTable;
-  public static int pinCount = 0;
-  public static File swapFile;
+  public static OpenFile swapFile;
 
   // data structure for a physical page
   public class PhysicalPage

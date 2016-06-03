@@ -87,13 +87,13 @@ public class VMProcess extends UserProcess {
    */
   private int clockReplacement() {
     // FIFO but skip pages with used bit set
-    while(pageTable[invTable[clockVictim].vpn].used) {
-      pageTable[invTable[clockVictim].vpn].used = false;
-      clockVictim = (clockVictim + 1) % invTable.length;
+    while(pageTable[VMKernel.invTable[clockVictim].vpn].used) {
+      pageTable[VMKernel.invTable[clockVictim].vpn].used = false;
+      clockVictim = (clockVictim + 1) % VMKernel.invTable.length;
     }
 
     int result = clockVictim;
-    clockVictim = (clockVictim + 1) % invTable.length;    
+    clockVictim = (clockVictim + 1) % VMKernel.invTable.length;    
     return result;
   }
 
@@ -104,7 +104,7 @@ public class VMProcess extends UserProcess {
   private void invalidateVictimPage(int ppn) {
     for(int i = 0; i < Machine.processor().getTLBSize(); i++) {
       TranslationEntry tlbe = Machine.processor().readTLBEntry(i);
-      if(tlbe.ppn = ppn) {
+      if(tlbe.ppn == ppn) {
         tlbe.valid = false;
         pageTable[tlbe.vpn].valid = false;
       }
@@ -131,7 +131,7 @@ public class VMProcess extends UserProcess {
         // sync entries then swap out victim, invalidating its entries
         syncEntries(false);
         ppn = clockReplacement();
-        if(pageTable[invTable[ppn].vpn].dirty) {
+        if(pageTable[VMKernel.invTable[ppn].vpn].dirty) {
           // swap pages
         }
         invalidateVictimPage(ppn);
@@ -143,8 +143,8 @@ public class VMProcess extends UserProcess {
       // pte.readonly = 
 
       // update invTable; check if pinned section
-      invTable[ppn].vpn = vpn;
-      invTable[ppn].proc = this;
+      VMKernel.invTable[ppn].vpn = vpn;
+      VMKernel.invTable[ppn].proc = this;
       // invTable[ppn].pinned = 
     }
 
@@ -172,8 +172,8 @@ public class VMProcess extends UserProcess {
     Machine.processor().writeTLBEntry(teIndex, tlbe);
 
     // initialize inverted page table entry for page
-    PhysicalPage physPage = VMKernel.invTable[tlbe.ppn];
-    physPage.te = new TranslationEntry(tlbe);
+    VMKernel.PhysicalPage physPage = VMKernel.invTable[tlbe.ppn];
+    physPage.vpn = vpn;;
     physPage.proc = this;
     //physPage.pinned
   }
