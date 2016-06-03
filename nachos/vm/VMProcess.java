@@ -132,7 +132,7 @@ public class VMProcess extends UserProcess {
         syncEntries(false);
         ppn = clockReplacement();
         if(pageTable[invTable[ppn].vpn].dirty) {
-          // swap here
+          // swap pages
         }
         invalidateVictimPage(ppn);
       }
