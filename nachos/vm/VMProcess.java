@@ -81,14 +81,20 @@ public class VMProcess extends UserProcess {
   }
 
   /**
-   * Chooses page to evict when no free pages.
+   * Chooses page to evict when no free pages. Returns ppn.
    * FIFO but skips pages where used == true.
+   * Note: used is equivalent to recently used
    */
   private int clockReplacement() {
-    byte[] memory = Machine.processor().getMemory();
-    int frames = Machine.processor().getNumPhysPages();
     // FIFO but skip pages with used bit set
-    return 0;
+    while(pageTable[invTable[clockVictim].vpn].used) {
+      pageTable[invTable[clockVictim].vpn].used = false;
+      clockVictim = (clockVictim + 1) % invTable.length;
+    }
+
+    int result = clockVictim;
+    clockVictim = (clockVictim + 1) % invTable.length;    
+    return result;
   }
 
   /**
@@ -193,6 +199,8 @@ public class VMProcess extends UserProcess {
   }
 
   private static final int pageSize = Processor.pageSize;
+
+  private static int clockVictim = 0;
 
   private static final char dbgProcess = 'a';
 
