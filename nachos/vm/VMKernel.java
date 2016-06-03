@@ -4,6 +4,7 @@ import nachos.machine.*;
 import nachos.threads.*;
 import nachos.userprog.*;
 import nachos.vm.*;
+import java.util.LinkedList;
 
 /**
  * A kernel that can support multiple demand-paging user processes.
@@ -25,6 +26,12 @@ public class VMKernel extends UserKernel {
     invTable = new PhysicalPage[Machine.
       processor().getNumPhysPages()];
     swapFile = ThreadedKernel.fileSystem.open("swap.nachos", true);
+    
+    // initialize linkedlist with 16 page numbers
+    freeSwapPages = new LinkedList<Integer>();
+    for(int i = 0; i < 16; i++) {
+      freeSwapPages.add((Integer) i);
+    }
   }
 
   /**
@@ -57,13 +64,18 @@ public class VMKernel extends UserKernel {
 
   // inverted page table; indexes are ppn
   public static PhysicalPage[] invTable;
+
+  // file with swap data
   public static OpenFile swapFile;
+
+  // list of page numbers in swap file
+  public static LinkedList<Integer> freeSwapPages;
 
   // data structure for a physical page
   public class PhysicalPage
   {
-    public int vpn = -1;
-    public VMProcess proc = null;
+    public TranslationEntry te;
+    public VMProcess proc;
     public boolean pinned = false;
 
     public PhysicalPage()

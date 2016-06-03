@@ -87,8 +87,8 @@ public class VMProcess extends UserProcess {
    */
   private int clockReplacement() {
     // FIFO but skip pages with used bit set
-    while(pageTable[VMKernel.invTable[clockVictim].vpn].used) {
-      pageTable[VMKernel.invTable[clockVictim].vpn].used = false;
+    while(pageTable[VMKernel.invTable[clockVictim].te.vpn].used) {
+      pageTable[VMKernel.invTable[clockVictim].te.vpn].used = false;
       clockVictim = (clockVictim + 1) % VMKernel.invTable.length;
     }
 
@@ -106,12 +106,18 @@ public class VMProcess extends UserProcess {
       TranslationEntry tlbe = Machine.processor().readTLBEntry(i);
       if(tlbe.ppn == ppn) {
         tlbe.valid = false;
-        pageTable[tlbe.vpn].valid = false;
+        pageTable[tlbe.vpn].valid = false; // indicates page swapped out
       }
     }
   }
 
+  private boolean swapRead(int spn, int ppn);
+  private boolean swapWrite(int spn, int ppn);
+
   private void handleTLBMiss() {
+    int ppn;
+    int spn;
+
     // get/allocate page table entry from virtual address
     int vaddr = Machine.processor().readRegister(Processor.regBadVAddr);
     int vpn = Processor.pageFromAddress(vaddr);
@@ -120,7 +126,6 @@ public class VMProcess extends UserProcess {
 
     // page fault
     if(!pte.valid) {
-      int ppn;
     
       // allocate PTE and inverted PTE if free page available
       if(UserKernel.freePages.size() > 0) {
@@ -128,13 +133,22 @@ public class VMProcess extends UserProcess {
       }
 
       else {
-        // sync entries then swap out victim, invalidating its entries
+        // sync entries and choose victim
         syncEntries(false);
         ppn = clockReplacement();
-        if(pageTable[VMKernel.invTable[ppn].vpn].dirty) {
-          // swap pages
+
+        // swap out if page written to; insert page position into list
+        if(pageTable[VMKernel.invTable[ppn].te.vpn].dirty) {
+          // TODO: check for race condition; maybe put in separate helper method
+          // TODO: if freeSwapPages.size() < 0, have to wait
+          // TODO: implement in methods swapRead/swapWrite
+          spn = (int) VMKernel.freeSwapPages.remove();
+          VMKernel.swapFile.write(spn*pageSize, Machine.processor().getMemory(), 
+            ppn*pageSize, pageSize);
         }
         invalidateVictimPage(ppn);
+        // TODO: save spn as translationentry.ppn for the pageTable entry that was invalidated
+        // TODO: how to record relation between vpn and spn? maybe keep spn as var in PhysicalPage
       }
 
       // update PTE; check read-only section
@@ -143,7 +157,7 @@ public class VMProcess extends UserProcess {
       // pte.readonly = 
 
       // update invTable; check if pinned section
-      VMKernel.invTable[ppn].vpn = vpn;
+      VMKernel.invTable[ppn].te = pte;
       VMKernel.invTable[ppn].proc = this;
       // invTable[ppn].pinned = 
     }
