@@ -5,6 +5,7 @@ import nachos.threads.*;
 import nachos.userprog.*;
 import nachos.vm.*;
 import java.util.LinkedList;
+import java.util.HashMap;
 
 /**
  * A kernel that can support multiple demand-paging user processes.
@@ -32,6 +33,8 @@ public class VMKernel extends UserKernel {
     for(int i = 0; i < 16; i++) {
       freeSwapPages.add((Integer) i);
     }
+    vpnSwapMap = new HashMap<Integer, Integer>();
+    spnProcMap = new HashMap<Integer, UserProcess>();
   }
 
   /**
@@ -70,12 +73,14 @@ public class VMKernel extends UserKernel {
 
   // list of page numbers in swap file
   public static LinkedList<Integer> freeSwapPages;
+  public static HashMap<Integer, UserProcess> spnProcMap;
+  public static HashMap<Integer, Integer> vpnSwapMap;
 
   // data structure for a physical page
   public class PhysicalPage
   {
-    public TranslationEntry te;
-    public VMProcess proc;
+    public int vpn;
+    public UserProcess currentProc;
     public boolean pinned = false;
 
     public PhysicalPage()

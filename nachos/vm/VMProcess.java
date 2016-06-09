@@ -27,6 +27,14 @@ public class VMProcess extends UserProcess {
   }
 
   /**
+   * Restore the state of this process after a context switch. Called by
+   * <tt>UThread.restoreState()</tt>.
+   */
+  public void restoreState() {
+    // TODO: maybe sync back the swap files/pages with pageTable here
+  }
+
+  /**
    * Syncs bits of all valid TLB entries to page table.
    * Invalidates all TLB entries if invalidate = true
    */
@@ -47,12 +55,6 @@ public class VMProcess extends UserProcess {
     }
   }
 
-  /**
-   * Restore the state of this process after a context switch. Called by
-   * <tt>UThread.restoreState()</tt>.
-   */
-  public void restoreState() {
-  }
 
   /**
    * Initializes page tables for this process so that the executable can be
@@ -106,13 +108,47 @@ public class VMProcess extends UserProcess {
       TranslationEntry tlbe = Machine.processor().readTLBEntry(i);
       if(tlbe.ppn == ppn) {
         tlbe.valid = false;
-        pageTable[tlbe.vpn].valid = false; // indicates page swapped out
+        pageTable[tlbe.vpn].valid = false; // memory mapping no longer valid
       }
     }
   }
 
-  private boolean swapRead(int spn, int ppn);
-  private boolean swapWrite(int spn, int ppn);
+  /**
+   * Reads specified swap page from file if not in freeSwapPages list.
+   * Puts swap page index back into freeSwapPages list if successful.
+   * Returns byte array of swap file data.
+   */
+  private byte[] swapRead(int spn) {
+    return 0; // TODO
+  }
+  
+  /**
+   * Write specified ppn of current page table to swap file.
+   * Returns swap page number.
+   */
+  private int swapWrite(int ppn) {
+
+    // no free pages; wait for one to appear
+    if(VMKernel.freeSwapPages.size() == 0) {
+      // TODO: use condition variable here
+    }
+
+    // write to free swap page
+    int spn = (int) VMKernel.freeSwapPages.remove();
+    int result = VMKernel.swapFile.write(spn*pageSize, 
+      Machine.processor().getMemory(), ppn*pageSize, pageSize);
+    
+    // update inverted page table entry if written successfully
+    if(result >= 0) {
+      VMKernel.vpnSwapMap.put(vpn, spn);
+      VMKernel.spnProcMap.put(spn, this);
+      return spn;
+    }
+
+    else {
+      return result;
+    }
+  }
 
   private void handleTLBMiss() {
     int ppn;
@@ -124,11 +160,15 @@ public class VMProcess extends UserProcess {
     Lib.assertTrue(vpn >= 0 && vpn < numPages);
     TranslationEntry pte = pageTable[vpn];
 
-    // page fault
+    // page fault -  allocate PTE + inverted PTE if free page exists
     if(!pte.valid) {
-    
-      // allocate PTE and inverted PTE if free page available
-      if(UserKernel.freePages.size() > 0) {
+      // TODO: swap in page if vpn found & dirty? and right process?
+      if(vpnSwapMap.get(vpn) != null) {
+        // TODO: check if obtained spn is associated with current process
+        // TODO: call swapRead with result of map.get(vpn)
+      }
+
+      else if(UserKernel.freePages.size() > 0) {
         ppn = ((Integer)UserKernel.freePages.removeFirst()).intValue();
       }
 
@@ -137,18 +177,12 @@ public class VMProcess extends UserProcess {
         syncEntries(false);
         ppn = clockReplacement();
 
-        // swap out if page written to; insert page position into list
-        if(pageTable[VMKernel.invTable[ppn].te.vpn].dirty) {
-          // TODO: check for race condition; maybe put in separate helper method
-          // TODO: if freeSwapPages.size() < 0, have to wait
-          // TODO: implement in methods swapRead/swapWrite
-          spn = (int) VMKernel.freeSwapPages.remove();
-          VMKernel.swapFile.write(spn*pageSize, Machine.processor().getMemory(), 
-            ppn*pageSize, pageSize);
+        // write to swap page if dirty; save swap page number as ppn of inverted page table entry
+        if(pageTable[VMKernel.invTable[ppn].vpn].dirty) {
+          int writeResult = swapWrite(ppn);
+          // if(writeResult >= 0)
         }
         invalidateVictimPage(ppn);
-        // TODO: save spn as translationentry.ppn for the pageTable entry that was invalidated
-        // TODO: how to record relation between vpn and spn? maybe keep spn as var in PhysicalPage
       }
 
       // update PTE; check read-only section
@@ -156,10 +190,13 @@ public class VMProcess extends UserProcess {
       pte.valid = true;
       // pte.readonly = 
 
-      // update invTable; check if pinned section
-      VMKernel.invTable[ppn].te = pte;
-      VMKernel.invTable[ppn].proc = this;
-      // invTable[ppn].pinned = 
+      // check if invTable is valid mapping to pte by checking if processes match up
+
+      // invTable's ppn is its index; ppn in TE is actually spn if TE is valid
+      VMKernel.PhysicalPage physPage = VMKernel.invTable[tlbe.ppn];
+      physPage.vpn = vpn;
+      physPage.currentProc = this;
+      //physPage.pinned
     }
 
     boolean tlbFull = true;
@@ -182,14 +219,7 @@ public class VMProcess extends UserProcess {
 
     // update TLB entry
     TranslationEntry tlbe = new TranslationEntry(pte);
-    tlbe.valid = true;
     Machine.processor().writeTLBEntry(teIndex, tlbe);
-
-    // initialize inverted page table entry for page
-    VMKernel.PhysicalPage physPage = VMKernel.invTable[tlbe.ppn];
-    physPage.vpn = vpn;;
-    physPage.proc = this;
-    //physPage.pinned
   }
 
   /**
