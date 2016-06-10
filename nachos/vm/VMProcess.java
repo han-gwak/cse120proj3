@@ -88,8 +88,8 @@ public class VMProcess extends UserProcess {
    */
   private int clockReplacement() {
     // FIFO but skip pages with used bit set
-    while(pageTable[VMKernel.invTable[clockVictim].te.vpn].used) {
-      pageTable[VMKernel.invTable[clockVictim].te.vpn].used = false;
+    while(pageTable[VMKernel.invTable[clockVictim].vpn].used) {
+      pageTable[VMKernel.invTable[clockVictim].vpn].used = false;
       clockVictim = (clockVictim + 1) % VMKernel.invTable.length;
     }
 
@@ -115,14 +115,25 @@ public class VMProcess extends UserProcess {
   /**
    * Reads specified swap page from file if not in freeSwapPages list.
    * Puts swap page index back into freeSwapPages list if successful.
-   * Returns byte array of swap file data.
+   * Returns number of bytes read.
    */
-  private byte[] swapRead(int spn) {
-    return 0; // TODO
+  private int swapRead(int spn, int ppn) {
+    if(VMKernel.freeSwapPages.indexOf((Integer) spn) != -1)
+      return -1;
+
+    int result = VMKernel.swapFile.read(spn*pageSize, 
+      Machine.processor().getMemory(), ppn*pageSize, pageSize);
+    if(result != -1) {
+      // TODO: update condition variable for swapWrite
+      VMKernel.freeSwapPages.add((Integer) spn);
+    }
+
+    return result;
   }
   
   /**
    * Write specified ppn of current page table to swap file.
+   * Adds 
    * Returns swap page number.
    */
   private int swapWrite(int ppn) {
@@ -139,7 +150,7 @@ public class VMProcess extends UserProcess {
     
     // update inverted page table entry if written successfully
     if(result >= 0) {
-      VMKernel.vpnSwapMap.put(vpn, spn);
+      VMKernel.vpnSwapMap.put(VMKernel.invTable[ppn].vpn, spn);
       VMKernel.spnProcMap.put(spn, VMKernel.invTable[ppn].proc);
       return spn;
     }
@@ -153,42 +164,51 @@ public class VMProcess extends UserProcess {
    */
   private void allocateFrame(int vpn, int ppn) {
     TranslationEntry pte = pageTable[vpn];
-    boolean readonly = false;
-    boolean used = false;
-    boolean dirty = false;
-    boolean pinned = false;
-
-    // swap out already handled in handlePageFault
+    boolean allocated = false;
     
-    // begin allocating physical memory based on pte bits; dirty = swap in
-    if(pageTable[vpn].dirty && VMKernel.vpnSwapMap.containsKey((Integer) vpn)) {
-      spn = (int) VMKernel.vpnSwapMap.get((Integer) vpn);
+    // dirty - swap in from swap file
+    if(pte.dirty && VMKernel.vpnSwapMap.containsKey((Integer) vpn)) {
+      Integer spn = VMKernel.vpnSwapMap.get((Integer) vpn);
 
       // write in from swap page if spn valid and same process
       if(VMKernel.spnProcMap.containsKey(spn) && 
-        VMKernel.spnProcMap.get((Integer) spn) == this) {
-        // TODO: call swapRead with result of map.get(vpn)
+        VMKernel.spnProcMap.get(spn) == this) {
+        
+        // memory successfully allocated; if not, allocate as normal
+        if(swapRead(spn, ppn) > 0) {
+          VMKernel.vpnSwapMap.remove((Integer) vpn);
+          VMKernel.spnProcMap.remove((Integer) spn);
+          allocated = true;
+        }
       }
     }
 
-    // not found in swap file - allocate normally
-    else {
-      // check which section it is
-      // set readonly bits and used/dirty bits
-      // set pinned bit
+    // not found in swap or hashMaps - allocate from coff
+    if(!allocated) {
+      // load section
+      for (int s=0; s<coff.getNumSections(); s++) {
+        CoffSection section = coff.getSection(s);
+
+        //TODO: coffsection can have multiple vpn's
+        //TODO: find out whether that has to be handled here
+        //TODO: find out what to do for case where not readonly
+        for (int i=0; i<section.getLength(); i++) {
+          int coffVpn = section.getFirstVPN()+i;
+          if(coffVpn == vpn) {
+            pte.readOnly = section.isReadOnly();
+            section.loadPage(i, ppn);
+          }
+        }
+      }
+
+      pte.ppn = ppn;
+      pte.valid = true;
+      pte.dirty = false;
+      pte.used = false;
+      VMKernel.invTable[ppn].vpn = vpn;
+      VMKernel.invTable[ppn].proc = this;
+      // TODO: set invTable.pinned
     }
-
-    // pte.ppn = ppn;
-    // pte.valid = true;
-
-    // check whether this should be read only in physical memory
-    // pte.readonly = false;
-    // pte.dirty = ?
-    // pte.used = ?
-
-    VMKernel.invTable[ppn].vpn = vpn;
-    VMKernel.invTable[ppn].proc = this;
-    // VMKernel.invTable[ppn].pinned = ?
   }
 
   private void handlePageFault(int vpn) {
@@ -212,7 +232,7 @@ public class VMProcess extends UserProcess {
       int evictedVpn = VMKernel.invTable[ppn].vpn;
 
       // do not write evicted ppn to swap unless second time (valid set)
-      if(pageTable[evictedVpn].readonly) {
+      if(pageTable[evictedVpn].readOnly) {
         if(pageTable[evictedVpn].valid) {
           // write out to swap?
           // load from coff or swap to stolen frame
@@ -234,19 +254,10 @@ public class VMProcess extends UserProcess {
         int writeResult = swapWrite(ppn);
       }
 
+      // allocate physical memory, update table entries
       invalidateVictimPage(ppn);
-
-      // allocate physical memory, updates table entries
       allocateFrame(vpn, ppn);
     }
-
-    // check if invTable is valid mapping to pte by checking if processes match up
-
-    // invTable's ppn is its index; ppn in TE is actually spn if TE is valid
-    VMKernel.PhysicalPage physPage = VMKernel.invTable[tlbe.ppn];
-    physPage.vpn = vpn;
-    physPage.proc = this;
-    //physPage.pinned
   }
 
   private void handleTLBMiss() {
@@ -259,7 +270,7 @@ public class VMProcess extends UserProcess {
     Lib.assertTrue(vpn >= 0 && vpn < numPages);
     TranslationEntry pte = pageTable[vpn];
 
-    // page fault
+    // page fault; allocate memory and page table entry
     if(!pte.valid) {
       handlePageFault(vpn);
     }
@@ -268,7 +279,7 @@ public class VMProcess extends UserProcess {
     boolean tlbFull = true;
     int teIndex = 0;
     for(; teIndex < Machine.processor().getTLBSize(); teIndex++) {
-      if(!Machine.processor().readTLBEntry(i).valid) {
+      if(!Machine.processor().readTLBEntry(teIndex).valid) {
         tlbFull = false;
         break;
       }
