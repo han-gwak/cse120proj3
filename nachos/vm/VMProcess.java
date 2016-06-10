@@ -31,7 +31,6 @@ public class VMProcess extends UserProcess {
    * <tt>UThread.restoreState()</tt>.
    */
   public void restoreState() {
-    // TODO: maybe sync back the swap files/pages with pageTable here
   }
 
   /**
@@ -141,13 +140,113 @@ public class VMProcess extends UserProcess {
     // update inverted page table entry if written successfully
     if(result >= 0) {
       VMKernel.vpnSwapMap.put(vpn, spn);
-      VMKernel.spnProcMap.put(spn, this);
+      VMKernel.spnProcMap.put(spn, VMKernel.invTable[ppn].proc);
       return spn;
     }
 
-    else {
-      return result;
+    return result;
+  }
+
+  /**
+   * Allocate physical memory and set pageTable and invTable values
+   * for entry at vpn/ppn.
+   */
+  private void allocateFrame(int vpn, int ppn) {
+    TranslationEntry pte = pageTable[vpn];
+    boolean readonly = false;
+    boolean used = false;
+    boolean dirty = false;
+    boolean pinned = false;
+
+    // swap out already handled in handlePageFault
+    
+    // begin allocating physical memory based on pte bits; dirty = swap in
+    if(pageTable[vpn].dirty && VMKernel.vpnSwapMap.containsKey((Integer) vpn)) {
+      spn = (int) VMKernel.vpnSwapMap.get((Integer) vpn);
+
+      // write in from swap page if spn valid and same process
+      if(VMKernel.spnProcMap.containsKey(spn) && 
+        VMKernel.spnProcMap.get((Integer) spn) == this) {
+        // TODO: call swapRead with result of map.get(vpn)
+      }
     }
+
+    // not found in swap file - allocate normally
+    else {
+      // check which section it is
+      // set readonly bits and used/dirty bits
+      // set pinned bit
+    }
+
+    // pte.ppn = ppn;
+    // pte.valid = true;
+
+    // check whether this should be read only in physical memory
+    // pte.readonly = false;
+    // pte.dirty = ?
+    // pte.used = ?
+
+    VMKernel.invTable[ppn].vpn = vpn;
+    VMKernel.invTable[ppn].proc = this;
+    // VMKernel.invTable[ppn].pinned = ?
+  }
+
+  private void handlePageFault(int vpn) {
+    int ppn;
+    int spn;
+    TranslationEntry pte = pageTable[vpn];
+
+    // chooses ppn from free frames, allocates memory, updates table entries
+    if(UserKernel.freePages.size() > 0) {
+      ppn = ((Integer)UserKernel.freePages.removeFirst()).intValue();
+      allocateFrame(vpn, ppn); // possibly swaps in memory if found
+    }
+
+    // chooses ppn through eviction, update evicted page if necessary
+    else {
+      syncEntries(false);
+      do {
+        ppn = clockReplacement();
+      } while (VMKernel.invTable[ppn].pinned);
+
+      int evictedVpn = VMKernel.invTable[ppn].vpn;
+
+      // do not write evicted ppn to swap unless second time (valid set)
+      if(pageTable[evictedVpn].readonly) {
+        if(pageTable[evictedVpn].valid) {
+          // write out to swap?
+          // load from coff or swap to stolen frame
+        }
+        else {
+          // do not write out to swap
+          // set to valid
+        }
+      }
+
+      // invalidate old frame owner's pte pointing to this frame
+      // reassign frame to this process
+      // copy contents of page to stolen frame
+      if(!pageTable[evictedVpn].dirty) {
+      }
+
+      // write to swap page if dirty; saves spn and proc in hashmaps
+      if(pageTable[evictedVpn].dirty) {
+        int writeResult = swapWrite(ppn);
+      }
+
+      invalidateVictimPage(ppn);
+
+      // allocate physical memory, updates table entries
+      allocateFrame(vpn, ppn);
+    }
+
+    // check if invTable is valid mapping to pte by checking if processes match up
+
+    // invTable's ppn is its index; ppn in TE is actually spn if TE is valid
+    VMKernel.PhysicalPage physPage = VMKernel.invTable[tlbe.ppn];
+    physPage.vpn = vpn;
+    physPage.proc = this;
+    //physPage.pinned
   }
 
   private void handleTLBMiss() {
@@ -160,58 +259,22 @@ public class VMProcess extends UserProcess {
     Lib.assertTrue(vpn >= 0 && vpn < numPages);
     TranslationEntry pte = pageTable[vpn];
 
-    // page fault -  allocate PTE + inverted PTE if free page exists
+    // page fault
     if(!pte.valid) {
-      // TODO: swap in page if vpn found & dirty? and right process?
-      if(vpnSwapMap.get(vpn) != null) {
-        // TODO: check if obtained spn is associated with current process
-        // TODO: call swapRead with result of map.get(vpn)
-      }
-
-      else if(UserKernel.freePages.size() > 0) {
-        ppn = ((Integer)UserKernel.freePages.removeFirst()).intValue();
-      }
-
-      else {
-        // sync entries and choose victim
-        syncEntries(false);
-        ppn = clockReplacement();
-
-        // write to swap page if dirty; save swap page number as ppn of inverted page table entry
-        if(pageTable[VMKernel.invTable[ppn].vpn].dirty) {
-          int writeResult = swapWrite(ppn);
-          // if(writeResult >= 0)
-        }
-        invalidateVictimPage(ppn);
-      }
-
-      // update PTE; check read-only section
-      pte.ppn = ppn;
-      pte.valid = true;
-      // pte.readonly = 
-
-      // check if invTable is valid mapping to pte by checking if processes match up
-
-      // invTable's ppn is its index; ppn in TE is actually spn if TE is valid
-      VMKernel.PhysicalPage physPage = VMKernel.invTable[tlbe.ppn];
-      physPage.vpn = vpn;
-      physPage.currentProc = this;
-      //physPage.pinned
+      handlePageFault(vpn);
     }
 
+    // choose tlb entry
     boolean tlbFull = true;
     int teIndex = 0;
-
-    // allocate invalid/unused tlb entry
-    for(int i = 0; i < Machine.processor().getTLBSize(); i++) {
+    for(; teIndex < Machine.processor().getTLBSize(); teIndex++) {
       if(!Machine.processor().readTLBEntry(i).valid) {
         tlbFull = false;
-        teIndex = i;
         break;
       }
     }
 
-    // evict and sync TLB entry but don't invalidate all
+    // evict and sync TLB entry
     if(tlbFull) {
       teIndex = Lib.random(Machine.processor().getTLBSize());
       syncEntries(false);

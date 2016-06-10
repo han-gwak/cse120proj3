@@ -80,7 +80,7 @@ public class VMKernel extends UserKernel {
   public class PhysicalPage
   {
     public int vpn;
-    public UserProcess currentProc;
+    public UserProcess proc;
     public boolean pinned = false;
 
     public PhysicalPage()
