@@ -159,14 +159,56 @@ public class VMProcess extends UserProcess {
   }
 
   /**
+   * Handle swap write and PTE invalidations for evicted page
+   * int vpn - VPN causing TLB miss
+   * int ppn - PPN where we want to allocate memory
+   */
+  private void handleEviction(int vpn, int ppn) {
+    int evictedVpn = VMKernel.invTable[ppn].vpn;  // previous vpn mapping to ppn
+    TranslationEntry invalidPte = pageTable[evictedVpn];  // pte to invalidate
+
+    // check if evictedVpn is part of coff section
+    int coffResult = insideCoff(evictedVpn);
+    boolean inCoff = (coffResult < 0) ? false : true;
+
+    if(inCoff) {
+      boolean readOnly = (coffResult == 1) ? true : false;
+
+      // non-readOnly pages in exe evicted if dirty
+      if(!readOnly && invalidPte.dirty) {
+        swapWrite(ppn);
+      }
+    }
+
+    // outside coff - write to swap if dirty
+    else {
+      if(invalidPte.dirty) {
+        swapWrite(ppn);
+      }
+    }
+
+    // set TLB and PT entries to invalid where evicted page was used
+    invalidateVictimPage(ppn); // invalidates TLB entries where evicted page was
+    invalidPte.valid = false;
+    VMKernel.invTable[ppn].vpn = vpn;
+    VMKernel.invTable[ppn].proc = this;
+  }
+
+  /**
    * Allocate physical memory and set pageTable and invTable values
    * for entry at vpn/ppn.
+   * Input ppn is the location in physical memory we want to evict
    */
-  private void allocateFrame(int vpn, int ppn) {
+  private void allocateFrame(int vpn, int ppn, boolean evict) {
     TranslationEntry pte = pageTable[vpn];
     boolean allocated = false;
+    boolean readOnly = false;
+
+    // handle swap write and pte invalidations for evicted page
+    if(evict)
+      handleEviction(vpn, ppn); // ppn here is the new location where we are putting our pte
     
-    // dirty - swap in from swap file
+    // dirty - swap in from swap file; since dirty, can't be readOnly
     if(pte.dirty && VMKernel.vpnSwapMap.containsKey((Integer) vpn)) {
       Integer spn = VMKernel.vpnSwapMap.get((Integer) vpn);
 
@@ -178,6 +220,7 @@ public class VMProcess extends UserProcess {
         if(swapRead(spn, ppn) > 0) {
           VMKernel.vpnSwapMap.remove((Integer) vpn);
           VMKernel.spnProcMap.remove((Integer) spn);
+          swapRead((int) spn, ppn);
           allocated = true;
         }
       }
@@ -185,31 +228,46 @@ public class VMProcess extends UserProcess {
 
     // not found in swap or hashMaps - allocate from coff
     if(!allocated) {
-      // load section
+      int coffResult = insideCoff(vpn);
+      readOnly = (coffResult == 1) ? true : false;
+
+      // load page into memory when appropriate section found
       for (int s=0; s<coff.getNumSections(); s++) {
         CoffSection section = coff.getSection(s);
-
-        //TODO: coffsection can have multiple vpn's
-        //TODO: find out whether that has to be handled here
-        //TODO: find out what to do for case where not readonly
-        for (int i=0; i<section.getLength(); i++) {
-          int coffVpn = section.getFirstVPN()+i;
-          if(coffVpn == vpn) {
-            pte.readOnly = section.isReadOnly();
-            section.loadPage(i, ppn);
-          }
+        if(vpn >= section.getFirstVPN() && vpn < (section.getFirstVPN() + section.getLength())) {
+            section.loadPage(vpn - section.getFirstVPN(), ppn);
         }
       }
-
-      pte.ppn = ppn;
-      pte.valid = true;
-      pte.dirty = false;
-      pte.used = false;
-      VMKernel.invTable[ppn].vpn = vpn;
-      VMKernel.invTable[ppn].proc = this;
-      // TODO: set invTable.pinned
     }
+
+    pte.ppn = ppn;
+    pte.valid = true;
+    pte.readOnly = readOnly;
+    VMKernel.invTable[ppn].vpn = vpn;
+    VMKernel.invTable[ppn].proc = this;
+    // TODO: set invTable.pinned
   }
+
+
+  /**
+   * Returns -1 if specified vpn not in coff section.
+   * Returns 0 if specified vpn in coff section but not read only
+   * Returns 1 if specified vpn in coffSection and readOnly
+   */
+  private int insideCoff(int vpn) {
+    boolean readOnly = false;
+    for (int s=0; s<coff.getNumSections(); s++) {
+      CoffSection section = coff.getSection(s);
+
+      // if vpn is in coff exit out of loop
+      if(vpn >= section.getFirstVPN() && vpn < (section.getFirstVPN() + section.getLength())) {
+          readOnly = section.isReadOnly();
+          return (readOnly) ? 1 : 0;
+      }
+    }
+    return -1;
+  }
+
 
   private void handlePageFault(int vpn) {
     int ppn;
@@ -219,44 +277,16 @@ public class VMProcess extends UserProcess {
     // chooses ppn from free frames, allocates memory, updates table entries
     if(UserKernel.freePages.size() > 0) {
       ppn = ((Integer)UserKernel.freePages.removeFirst()).intValue();
-      allocateFrame(vpn, ppn); // possibly swaps in memory if found
+      allocateFrame(vpn, ppn, false); // allocate without evicting
     }
 
-    // chooses ppn through eviction, update evicted page if necessary
+    // chooses ppn through eviction, allocate physical page
     else {
       syncEntries(false);
       do {
         ppn = clockReplacement();
-      } while (VMKernel.invTable[ppn].pinned);
-
-      int evictedVpn = VMKernel.invTable[ppn].vpn;
-
-      // do not write evicted ppn to swap unless second time (valid set)
-      if(pageTable[evictedVpn].readOnly) {
-        if(pageTable[evictedVpn].valid) {
-          // write out to swap?
-          // load from coff or swap to stolen frame
-        }
-        else {
-          // do not write out to swap
-          // set to valid
-        }
-      }
-
-      // invalidate old frame owner's pte pointing to this frame
-      // reassign frame to this process
-      // copy contents of page to stolen frame
-      if(!pageTable[evictedVpn].dirty) {
-      }
-
-      // write to swap page if dirty; saves spn and proc in hashmaps
-      if(pageTable[evictedVpn].dirty) {
-        int writeResult = swapWrite(ppn);
-      }
-
-      // allocate physical memory, update table entries
-      invalidateVictimPage(ppn);
-      allocateFrame(vpn, ppn);
+      } while (VMKernel.invTable[ppn].pinned); // skip this entry if pinned
+      allocateFrame(vpn, ppn, true); // allocate with eviction
     }
   }
 
