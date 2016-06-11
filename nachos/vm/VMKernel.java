@@ -26,6 +26,9 @@ public class VMKernel extends UserKernel {
     
     invTable = new PhysicalPage[Machine.
       processor().getNumPhysPages()];
+    for(int i = 0; i < Machine.processor().getNumPhysPages(); i++) {
+      invTable[i] = new PhysicalPage();
+    }
     swapFile = ThreadedKernel.fileSystem.open("swap.nachos", true);
     
     // initialize linkedlist with 16 page numbers
