@@ -31,8 +31,10 @@ public class VMKernel extends UserKernel {
     }
     swapFile = ThreadedKernel.fileSystem.open("swap.nachos", true);
 
+    pinLock = new Lock();
     swapLock = new Lock();
     swapFull = new Condition(swapLock);
+    unpinnedPage = new Condition(pinLock);
     
     // initialize linkedlist with 16 page numbers
     freeSwapPages = new LinkedList<Integer>();
@@ -82,8 +84,10 @@ public class VMKernel extends UserKernel {
   public static HashMap<Integer, UserProcess> spnProcMap;
   public static HashMap<Integer, Integer> vpnSwapMap;
   public static Condition unpinnedPage;
-  public static Lock swapLock;
   public static Condition swapFull;
+  public static Lock pinLock;
+  public static Lock swapLock;
+  public static int pinCounter = 0;
 
   // data structure for a physical page
   public class PhysicalPage

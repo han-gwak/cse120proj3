@@ -97,7 +97,15 @@ public class VMProcess extends UserProcess {
       entry.dirty = true;
     }
     entry.used = true;
+
+    VMKernel.pinLock.acquire();
+    while(VMKernel.pinCounter >= numPages) {
+      VMKernel.unpinnedPage.sleep();
+    }
+
     VMKernel.invTable[entry.ppn].pinned = true;
+    VMKernel.pinCounter++;
+    VMKernel.pinLock.release();
 
     return entry.ppn;
   }
@@ -110,7 +118,11 @@ public class VMProcess extends UserProcess {
     if (!entry.valid || entry.vpn != vpn)
       return;
 
+    VMKernel.pinLock.acquire();
+    VMKernel.pinCounter--;
     VMKernel.invTable[entry.ppn].pinned = false;
+    VMKernel.unpinnedPage.wake();
+    VMKernel.pinLock.release();
   }
 
 
@@ -160,7 +172,9 @@ public class VMProcess extends UserProcess {
 
     if(result != -1) {
       VMKernel.freeSwapPages.add((Integer) spn);
+      VMKernel.swapLock.acquire();
       VMKernel.swapFull.wake();
+      VMKernel.swapLock.release();
     }
 
     return result;
@@ -173,12 +187,10 @@ public class VMProcess extends UserProcess {
    */
   private int swapWrite(int ppn) {
     VMKernel.swapLock.acquire();
-    
     // no free pages; wait for one to appear
-    while(VMKernel.freeSwapPages.size() == 0) {
+    while(VMKernel.freeSwapPages.isEmpty()) {
       VMKernel.swapFull.sleep();  
     }
-
     VMKernel.swapLock.release();
 
     // write to free swap page
