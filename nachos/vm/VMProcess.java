@@ -82,6 +82,38 @@ public class VMProcess extends UserProcess {
     super.unloadSections();
   }
 
+  protected int pinVirtualPage(int vpn, boolean isUserWrite) {
+    // input check
+    if (vpn < 0 || vpn >= pageTable.length)
+      return -1;
+    TranslationEntry entry = pageTable[vpn];
+    if (!entry.valid || entry.vpn != vpn)
+      return -1;
+
+    // set dirty and used bits
+    if (isUserWrite) {
+      if (entry.readOnly)
+        return -1;
+      entry.dirty = true;
+    }
+    entry.used = true;
+    VMKernel.invTable[entry.ppn].pinned = true;
+
+    return entry.ppn;
+  }
+
+  protected void unpinVirtualPage(int vpn) {
+    // input check
+    if (vpn < 0 || vpn >= pageTable.length)
+      return;
+    TranslationEntry entry = pageTable[vpn];
+    if (!entry.valid || entry.vpn != vpn)
+      return;
+
+    VMKernel.invTable[entry.ppn].pinned = false;
+  }
+
+
   /**
    * Chooses page to evict when no free pages. Returns ppn.
    * FIFO but skips pages where used == true.
