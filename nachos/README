@@ -1,2 +1,12 @@
 Hahnah Gwak, A10137384, cs120saq
-Jiyoung Nam
+Jiyoung Nam, A97072735, cs120sbd
+
+We have worked on this project using Git, and we tested our code mainly with
+37 autograder tests which were given to us. 
+
+Description of the code written by each member
+
+Hannah Gwak : Implemented clock algorithm; page fault handler; page swapping;
+TLBmissHandler; synchronizing entries; pinning pages  & debugging + testing
+
+Jiyoung Nam : Implemented global basic data structures(such as inverted page table), TLBMissHandler, initializing data structures, pinning pages & debugging + testing   
