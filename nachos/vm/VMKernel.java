@@ -78,6 +78,7 @@ public class VMKernel extends UserKernel {
   public static LinkedList<Integer> freeSwapPages;
   public static HashMap<Integer, UserProcess> spnProcMap;
   public static HashMap<Integer, Integer> vpnSwapMap;
+  public static Condition unpinnedPage;
 
   // data structure for a physical page
   public class PhysicalPage

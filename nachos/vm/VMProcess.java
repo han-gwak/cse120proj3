@@ -40,7 +40,7 @@ public class VMProcess extends UserProcess {
   public void syncEntries(boolean invalidate) {
     // update page table
     for(int i = 0; i < Machine.processor().getTLBSize(); i++) {
-      TranslationEntry tlbe = Machine.processor().readTLBEntry(i);
+      TranslationEntry tlbe = new TranslationEntry(Machine.processor().readTLBEntry(i));
       TranslationEntry pte = pageTable[tlbe.vpn];
 
       // sync all valid TLB entries 
@@ -51,6 +51,7 @@ public class VMProcess extends UserProcess {
         if(invalidate)
           tlbe.valid = false;
       }
+      Machine.processor().writeTLBEntry(i, tlbe);
     }
   }
 
@@ -104,11 +105,12 @@ public class VMProcess extends UserProcess {
    */
   private void invalidateVictimPage(int ppn) {
     for(int i = 0; i < Machine.processor().getTLBSize(); i++) {
-      TranslationEntry tlbe = Machine.processor().readTLBEntry(i);
+      TranslationEntry tlbe = new TranslationEntry(Machine.processor().readTLBEntry(i));
       if(tlbe.ppn == ppn) {
         tlbe.valid = false;
         pageTable[tlbe.vpn].valid = false; // memory mapping no longer valid
       }
+      Machine.processor().writeTLBEntry(i, tlbe);
     }
   }
 
