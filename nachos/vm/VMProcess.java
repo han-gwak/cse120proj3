@@ -125,9 +125,10 @@ public class VMProcess extends UserProcess {
 
     int result = VMKernel.swapFile.read(spn*pageSize, 
       Machine.processor().getMemory(), ppn*pageSize, pageSize);
+
     if(result != -1) {
-      // TODO: update condition variable for swapWrite
       VMKernel.freeSwapPages.add((Integer) spn);
+      VMKernel.swapFull.wake();
     }
 
     return result;
@@ -139,11 +140,14 @@ public class VMProcess extends UserProcess {
    * Returns swap page number.
    */
   private int swapWrite(int ppn) {
-
+    VMKernel.swapLock.acquire();
+    
     // no free pages; wait for one to appear
-    if(VMKernel.freeSwapPages.size() == 0) {
-      // TODO: use condition variable here
+    while(VMKernel.freeSwapPages.size() == 0) {
+      VMKernel.swapFull.sleep();  
     }
+
+    VMKernel.swapLock.release();
 
     // write to free swap page
     int spn = (int) VMKernel.freeSwapPages.remove();
@@ -277,7 +281,7 @@ public class VMProcess extends UserProcess {
     TranslationEntry pte = pageTable[vpn];
 
     // chooses ppn from free frames, allocates memory, updates table entries
-    if(UserKernel.freePages.size() > 0) {
+    if(!UserKernel.freePages.isEmpty()) {
       ppn = ((Integer)UserKernel.freePages.removeFirst()).intValue();
       allocateFrame(vpn, ppn, false); // allocate without evicting
     }
